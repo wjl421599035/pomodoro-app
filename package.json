@@ -1,0 +1,31 @@
+{
+  "name": "pomodoro",
+  "version": "1.0.0",
+  "description": "桌面番茄钟 — 自带系统托盘、全局快捷键、专注计时",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable",
+    "build:dir": "electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.pomodoro.app",
+    "productName": "番茄钟",
+    "directories": { "output": "dist" },
+    "win": {
+      "icon": "icons/icon.png",
+      "target": ["portable"],
+      "signAndEditExecutable": false
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "app.html",
+      "icons/**"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^36.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

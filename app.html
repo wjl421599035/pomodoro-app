@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>番茄钟</title>
+<style>
+  /* ================================================================
+     CSS 自定义属性（设计令牌）
+     集中管理所有颜色，方便统一调整主题
+     ================================================================ */
+  :root {
+    --bg: #1a1a2e;                  /* 页面背景色：深蓝黑 */
+    --surface: #16213e;             /* 卡片/容器表面色：稍亮的深蓝 */
+    --accent: #e94560;              /* 主强调色：红色，用于按钮和工作模式 */
+    --text: #eee;                   /* 主文字色：浅灰白 */
+    --text-dim: #999;               /* 次要文字色：暗灰 */
+    --work-color: #e94560;          /* 工作模式专属色：红 */
+    --short-break-color: #4ecca3;   /* 短休息模式色：绿 */
+    --long-break-color: #4e8fcc;    /* 长休息模式色：蓝 */
+    --ring-bg: #2a2a4a;             /* 进度环背景轨道色 */
+  }
+
+  /* ================================================================
+     全局重置：消除浏览器默认边距，统一盒模型
+     ================================================================ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    /* Flexbox 居中：让卡片在视口正中央 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;                  /* 占满整个视口高度 */
+    overflow: hidden;               /* 防止出现滚动条 */
+    user-select: none;              /* 禁止文本选中（让按钮点击体验更好） */
+    -webkit-user-select: none;
+  }
+
+  /* ================================================================
+     主容器卡片
+     ================================================================ */
+  .container {
+    text-align: center;
+    padding: 36px 40px;
+    background: var(--surface);
+    border-radius: 28px;            /* 大圆角，现代感 */
+    /* 双层阴影：外层大范围虚化 + 内层 1px 描边模拟边框 */
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  /* ---- 标题栏 ---- */
+  .title-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between; /* 标题靠左，按钮靠右 */
+    margin-bottom: 20px;
+  }
+  .title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .top-row {
+    display: flex;
+    gap: 8px;
+  }
+  /* 小标签按钮（如"置顶"） */
+  .chip {
+    font-size: 0.72rem;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    background: var(--bg);
+    color: var(--text-dim);
+    font-weight: 500;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+  .chip:hover { color: var(--text); }
+  .chip.on { background: var(--accent); color: #fff; }  /* 激活态：红色背景 */
+
+  /* ---- 模式切换标签栏 ---- */
+  .modes {
+    display: flex;
+    gap: 4px;
+    background: var(--bg);          /* 整体底色作为标签栏背景 */
+    border-radius: 14px;
+    padding: 4px;                   /* 内边距形成"槽"的效果 */
+    margin-bottom: 28px;
+  }
+  .mode-btn {
+    flex: 1;                        /* 三个按钮等分宽度 */
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    border-radius: 11px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.25s;
+    white-space: nowrap;            /* 防止文字换行 */
+    font-family: inherit;
+  }
+  .mode-btn:hover { color: var(--text); }
+  /* 激活的模式按钮：表面色背景 + 阴影，形成"浮起"效果 */
+  .mode-btn.active {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  /* 不同模式激活时使用各自的强调色 */
+  .mode-btn.work.active    { color: var(--work-color); }
+  .mode-btn.short.active  { color: var(--short-break-color); }
+  .mode-btn.long.active   { color: var(--long-break-color); }
+
+  /* ---- 进度圆环 ---- */
+  .ring-container {
+    position: relative;             /* 作为内部绝对定位文字的参考 */
+    width: 250px;
+    height: 250px;
+    margin: 0 auto 28px;
+  }
+  /* 底层圆环：灰色轨道 */
+  .ring-bg {
+    fill: none;                     /* SVG 圆形不填充内部 */
+    stroke: var(--ring-bg);         /* 描边颜色 */
+    stroke-width: 10;               /* 描边宽度 */
+  }
+  /* 上层圆环：彩色进度条 */
+  .ring-progress {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 10;
+    stroke-linecap: round;          /* 端点圆角 */
+    /* 从 12 点钟方向开始绘制（默认从 3 点钟方向） */
+    transform: rotate(-90deg);
+    transform-origin: center;
+    /* stroke-dashoffset 变化时线性过渡，stroke 变化时稍慢 */
+    transition: stroke-dashoffset 0.3s linear, stroke 0.4s;
+  }
+  .ring-svg { width: 100%; height: 100%; }
+  /* 圆环中心的文字区域：绝对定位覆盖整个圆环 */
+  .timer-text {
+    position: absolute;
+    inset: 0;                       /* 等同于 top/right/bottom/left: 0 */
+    display: flex;
+    flex-direction: column;         /* 时间在上，状态标签在下 */
+    align-items: center;
+    justify-content: center;
+  }
+  .time-display {
+    font-size: 4rem;
+    font-weight: 300;               /* 细体，更优雅 */
+    font-variant-numeric: tabular-nums; /* 等宽数字，防止数字变化时宽度跳动 */
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    letter-spacing: -2px;
+    line-height: 1;
+  }
+  .time-label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+    letter-spacing: 1px;
+  }
+
+  /* ---- 控制按钮 ---- */
+  .controls {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .btn {
+    border: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-radius: 14px;
+    padding: 12px 26px;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+    font-family: inherit;
+  }
+  .btn:active { transform: scale(0.96); }  /* 按下时微缩反馈 */
+  /* 开始/暂停按钮：红色大按钮 + 发光阴影 */
+  .btn-start {
+    background: var(--accent);
+    color: #fff;
+    font-size: 1rem;
+    padding: 13px 44px;
+    box-shadow: 0 6px 22px rgba(233,69,96,0.35);
+  }
+  .btn-start:hover { box-shadow: 0 8px 28px rgba(233,69,96,0.5); transform: translateY(-1px); }
+  /* 暂停态：变为绿色，视觉上提示"可以停下来" */
+  .btn-start.paused { background: var(--short-break-color); box-shadow: 0 6px 22px rgba(78,204,163,0.35); }
+  /* 图标按钮（重置、跳过）：圆形 */
+  .btn-icon {
+    background: var(--bg);
+    color: var(--text-dim);
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .btn-icon:hover { color: var(--text); background: #252545; }
+
+  /* ---- 统计区 ---- */
+  .stats {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+  }
+  .stat strong {
+    display: block;                 /* 数字单独一行，更突出 */
+    font-size: 1.2rem;
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* ---- 设置面板 ---- */
+  .settings-toggle {
+    margin-top: 16px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: color 0.2s;
+    font-family: inherit;
+  }
+  .settings-toggle:hover { color: var(--text); }
+  /* 默认隐藏，加 .open 类后显示 */
+  .settings-panel {
+    display: none;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .settings-panel.open { display: block; }
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .setting-row input {
+    width: 60px;
+    padding: 5px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.8rem;
+    text-align: center;
+    font-family: inherit;
+  }
+  .setting-row input:focus { outline: none; border-color: var(--accent); }
+
+  /* ---- 快捷键提示栏 ---- */
+  .hint-bar {
+    margin-top: 18px;
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    opacity: 0.45;                  /* 半透明，不抢眼 */
+  }
+  .hint-bar span {
+    background: var(--bg);
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  }
+</style>
+</head>
+<body>
+
+<!--
+  整体 DOM 结构（从上到下）：
+  1. 标题栏        — 应用名称 + 置顶按钮
+  2. 模式标签栏    — 工作 / 短休息 / 长休息
+  3. 进度环        — SVG 圆环 + 中央倒计时文字
+  4. 控制按钮      — 重置 / 开始暂停 / 跳过
+  5. 统计区        — 本轮完成数 / 总番茄数
+  6. 设置面板      — 可展开，配置各模式时长和长休息间隔
+  7. 快捷键提示    — Alt+Space / Alt+R / Alt+S
+-->
+<div class="container">
+  <!-- 标题栏 -->
+  <div class="title-bar">
+    <div class="title">🍅 番茄钟</div>
+    <div class="top-row">
+      <!-- 置顶按钮：仅在 Electron 环境下有效，点击切换 .on 类 -->
+      <button class="chip" id="btnPin" title="窗口置顶">📌 置顶</button>
+    </div>
+  </div>
+
+  <!-- 模式切换标签：通过 data-mode 属性标识对应模式 -->
+  <div class="modes">
+    <button class="mode-btn work active" data-mode="work">工作</button>
+    <button class="mode-btn short" data-mode="short">短休息</button>
+    <button class="mode-btn long" data-mode="long">长休息</button>
+  </div>
+
+  <!-- 进度圆环：SVG 200x200 视口，圆心(100,100)，半径 90 -->
+  <div class="ring-container">
+    <svg class="ring-svg" viewBox="0 0 200 200">
+      <!-- 背景轨道圆环：始终显示完整灰色圆 -->
+      <circle class="ring-bg" cx="100" cy="100" r="90"/>
+      <!--
+        进度圆环：
+        - stroke-dasharray="565.486" 是圆周长 2*π*90，让虚线总长等于圆周长
+        - stroke-dashoffset 从 0（满圆）到 565.486（空圆），代表 100%→0%
+        - 初始 offset=0 表示满进度（剩余时间=总时间）
+      -->
+      <circle class="ring-progress" id="ring" cx="100" cy="100" r="90"
+              stroke-dasharray="565.486" stroke-dashoffset="0"/>
+    </svg>
+    <!-- 圆环中央的时间文字，用绝对定位覆盖在 SVG 上方 -->
+    <div class="timer-text">
+      <div class="time-display" id="timer">25:00</div>
+      <div class="time-label" id="status">准备开始</div>
+    </div>
+  </div>
+
+  <!-- 控制按钮区 -->
+  <div class="controls">
+    <button class="btn-icon" id="btnReset" title="重置 (Alt+R)">↺</button>
+    <button class="btn btn-start" id="btnStart">开始</button>
+    <button class="btn-icon" id="btnSkip" title="跳过 (Alt+S)">⏭</button>
+  </div>
+
+  <!-- 统计区 -->
+  <div class="stats">
+    <div class="stat"><strong id="countWork">0</strong>完成</div>
+    <div class="stat"><strong id="countTotal">0</strong>总番茄</div>
+  </div>
+
+  <!-- 设置面板：默认隐藏，点击"设置"按钮展开 -->
+  <button class="settings-toggle" id="btnSettings">⚙ 设置</button>
+  <div class="settings-panel" id="settingsPanel">
+    <div class="setting-row">
+      <span>工作时长 (分钟)</span>
+      <input type="number" id="setWork" min="1" max="120" value="25">
+    </div>
+    <div class="setting-row">
+      <span>短休息 (分钟)</span>
+      <input type="number" id="setShort" min="1" max="30" value="5">
+    </div>
+    <div class="setting-row">
+      <span>长休息 (分钟)</span>
+      <input type="number" id="setLong" min="1" max="60" value="15">
+    </div>
+    <div class="setting-row">
+      <span>长休息间隔 (番茄数)</span>
+      <!-- 指完成几个番茄后触发一次长休息（经典番茄工作法为 4） -->
+      <input type="number" id="setInterval" min="1" max="10" value="4">
+    </div>
+  </div>
+
+  <!-- 快捷键提示 -->
+  <div class="hint-bar">
+    <span>Alt+Space</span> 开始/暂停
+    <span>Alt+R</span> 重置
+    <span>Alt+S</span> 跳过
+  </div>
+</div>
+
+<script>
+// ====================================================================
+// 常量定义
+// ====================================================================
+
+// 圆环周长 = 2 × π × 半径(90) ≈ 565.486
+// 用于计算 stroke-dashoffset，控制进度环的填充比例
+const CIRCUMFERENCE = 2 * Math.PI * 90;
+
+// ====================================================================
+// 应用状态（单一状态对象，方便管理）
+// ====================================================================
+const state = {
+  mode: 'work',           // 当前模式：'work' | 'short' | 'long'
+  running: false,         // 计时器是否正在运行
+  remaining: 25 * 60,     // 剩余秒数（默认 25 分钟）
+  total: 25 * 60,         // 当前模式的总秒数
+  sessionCount: 0,        // 本轮完成的番茄数（用于判断长休息触发时机）
+  totalPomodoros: 0,      // 历史累计总番茄数（持久化到 localStorage）
+};
+
+// ====================================================================
+// 设置管理：使用 localStorage 持久化用户配置
+// ====================================================================
+
+/**
+ * 从 localStorage 加载设置
+ * 如果读取失败或数据不存在，返回默认值（经典番茄工作法配置）
+ */
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem('pomodoro-settings');
+    if (raw) return JSON.parse(raw);
+  } catch (_) { /* 解析失败，忽略，返回默认值 */ }
+  // 默认：工作 25 分钟、短休息 5 分钟、长休息 15 分钟、每 4 个番茄长休息
+  return { work: 25, short: 5, long: 15, longInterval: 4 };
+}
+
+/** 保存设置到 localStorage */
+function saveSettings(s) {
+  localStorage.setItem('pomodoro-settings', JSON.stringify(s));
+}
+
+let settings = loadSettings();
+
+/**
+ * 加载历史总番茄数
+ */
+function loadTotal() {
+  try { return parseInt(localStorage.getItem('pomodoro-total')) || 0; } catch (_) { return 0; }
+}
+
+/** 保存历史总番茄数 */
+function saveTotal(n) { localStorage.setItem('pomodoro-total', String(n)); }
+
+// 应用启动时恢复历史总番茄数
+state.totalPomodoros = loadTotal();
+
+// ====================================================================
+// DOM 元素引用（缓存所有需要操作的 DOM 节点，避免重复查询）
+// ====================================================================
+const $timer        = document.getElementById('timer');
+const $status       = document.getElementById('status');
+const $ring         = document.getElementById('ring');
+const $btnStart     = document.getElementById('btnStart');
+const $btnReset     = document.getElementById('btnReset');
+const $btnSkip      = document.getElementById('btnSkip');
+const $btnPin       = document.getElementById('btnPin');
+const $countWork    = document.getElementById('countWork');
+const $countTotal   = document.getElementById('countTotal');
+const $modeBtns     = document.querySelectorAll('.mode-btn');
+const $settingsPanel = document.getElementById('settingsPanel');
+const $btnSettings  = document.getElementById('btnSettings');
+const $setWork      = document.getElementById('setWork');
+const $setShort     = document.getElementById('setShort');
+const $setLong      = document.getElementById('setLong');
+const $setInterval  = document.getElementById('setInterval');
+
+// ====================================================================
+// 音频系统：使用 Web Audio API 生成提示音（无需音频文件）
+// ====================================================================
+
+let audioCtx = null;  // AudioContext 实例，延迟创建（浏览器要求用户交互后）
+
+/**
+ * 播放一个简单的 beep 音效
+ * @param {number} freq     频率（Hz），如 880 = A5 音高
+ * @param {number} duration 持续时间（秒）
+ * @param {string} type     波形类型：'sine'（柔和）/ 'square'（清脆）
+ */
+function beep(freq, duration, type = 'sine') {
+  try {
+    // 首次调用时创建 AudioContext（延迟创建以满足浏览器自动播放策略）
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // 创建振荡器节点（产生声音波形）
+    const osc = audioCtx.createOscillator();
+    // 创建增益节点（控制音量）
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    // 设置初始音量
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    // 音量指数衰减到接近 0，实现自然的渐弱效果
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    // 连接音频节点链：振荡器 → 增益 → 输出
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    // 播放指定时长后自动停止
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + duration);
+  } catch (_) { /* 音频播放失败静默处理 */ }
+}
+
+/**
+ * 播放三段式提示闹钟（番茄完成或休息结束时触发）
+ * 880Hz(0.2s) → 1100Hz(0.25s) → 1320Hz(0.4s)，音高逐步上升
+ */
+function playAlarm() {
+  beep(880, 0.2, 'sine');
+  setTimeout(() => beep(1100, 0.25, 'sine'), 200);
+  setTimeout(() => beep(1320, 0.4, 'sine'), 400);
+}
+
+/**
+ * 播放点击音效（开始/跳过时触发）
+ * 使用方波(square)产生更明显的"click"感
+ */
+function playClick() {
+  beep(600, 0.08, 'square');
+}
+
+// ====================================================================
+// 工具函数
+// ====================================================================
+
+/**
+ * 将秒数格式化为 MM:SS 显示格式
+ * @param {number} sec 总秒数
+ * @returns {string} 如 "25:00"、"04:59"
+ */
+function formatTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+/**
+ * 根据当前模式返回对应的 CSS 变量（用于进度环颜色）
+ */
+function getAccentColor() {
+  if (state.mode === 'work')  return 'var(--work-color)';
+  if (state.mode === 'short') return 'var(--short-break-color)';
+  return 'var(--long-break-color)';
+}
+
+/**
+ * 根据当前模式返回中文标签文本
+ */
+function getModeLabel() {
+  if (state.mode === 'work')  return '专注工作';
+  if (state.mode === 'short') return '短休息';
+  return '长休息';
+}
+
+// ====================================================================
+// Electron 集成检测
+// 通过 window.pomodoroAPI 是否存在判断是否在 Electron 桌面端运行
+// ====================================================================
+const isElectron = typeof window.pomodoroAPI !== 'undefined';
+
+/**
+ * 向 Electron 主进程发送托盘更新数据
+ * 仅在 Electron 环境下生效，用于在系统托盘显示当前计时器状态
+ */
+function sendTrayUpdate() {
+  if (isElectron) {
+    window.pomodoroAPI.updateTray({
+      timerText: formatTime(state.remaining),
+      modeLabel: getModeLabel(),
+    });
+  }
+}
+
+// ====================================================================
+// UI 渲染函数
+// ====================================================================
+
+/**
+ * 更新进度圆环
+ * 通过计算剩余时间比例，设置 stroke-dashoffset
+ * 原理：offset = 周长 × (1 - 进度)，offset 越大圆环越短
+ * 例如：剩余 50% 时，offset = 565.486 × 0.5 ≈ 282.7（圆环显示一半）
+ */
+function updateRing() {
+  const progress = 1 - (state.remaining / state.total);
+  const offset = CIRCUMFERENCE * (1 - progress);
+  $ring.setAttribute('stroke-dashoffset', offset);
+  $ring.style.stroke = getAccentColor();  // 根据模式切换颜色
+}
+
+/**
+ * 全面刷新 UI：计时器文字、进度环、按钮状态、统计数字、页面标题、托盘
+ */
+function updateUI() {
+  // 更新倒计时显示
+  $timer.textContent = formatTime(state.remaining);
+  // 更新进度环
+  updateRing();
+
+  // 根据运行状态更新按钮文字和样式
+  if (state.running) {
+    $status.textContent = getModeLabel();
+    $btnStart.textContent = '暂停';
+    $btnStart.classList.add('paused');     // 变为绿色
+  } else {
+    // 未运行时判断是"准备开始"还是"已暂停"
+    $status.textContent = state.remaining === state.total ? '准备开始' : '已暂停';
+    $btnStart.textContent = state.remaining === state.total ? '开始' : '继续';
+    $btnStart.classList.remove('paused');  // 恢复红色
+  }
+
+  // 更新统计数字
+  $countWork.textContent = state.sessionCount;
+  $countTotal.textContent = state.totalPomodoros;
+
+  // 更新模式标签栏的激活状态
+  $modeBtns.forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === state.mode);
+  });
+
+  // 更新浏览器标签页标题（显示倒计时和当前模式）
+  document.title = `${formatTime(state.remaining)} - ${getModeLabel()} 🍅`;
+
+  // 同步到 Electron 系统托盘
+  sendTrayUpdate();
+}
+
+/**
+ * 将当前设置值回填到设置面板的输入框中
+ */
+function updateSettingsUI() {
+  $setWork.value = settings.work;
+  $setShort.value = settings.short;
+  $setLong.value = settings.long;
+  $setInterval.value = settings.longInterval;
+}
+
+// ====================================================================
+// 计时器核心逻辑
+// ====================================================================
+
+let intervalId = null;  // setInterval 返回的 ID，用于清除定时器
+
+/**
+ * 根据当前模式设置对应的总时长和剩余时间
+ * 从 settings 对象读取用户配置的分钟数，转换为秒
+ */
+function applyModeDuration() {
+  if (state.mode === 'work') {
+    state.total = settings.work * 60;
+  } else if (state.mode === 'short') {
+    state.total = settings.short * 60;
+  } else {
+    state.total = settings.long * 60;
+  }
+  state.remaining = state.total;  // 重置剩余时间为满值
+}
+
+/**
+ * 切换模式（工作/短休息/长休息）
+ * 会停止当前计时，重新设置时长，刷新 UI
+ * @param {string} mode 目标模式：'work' | 'short' | 'long'
+ */
+function switchMode(mode) {
+  state.mode = mode;
+  state.running = false;
+  clearInterval(intervalId);
+  intervalId = null;
+  applyModeDuration();   // 按新模式设置时长
+  updateUI();
+}
+
+/**
+ * 开始计时
+ * - 如果已经在运行则忽略（防止重复启动）
+ * - 如果剩余时间为 0，先重新加载时长
+ * - 每秒减 1，到 0 时触发 completeSession()
+ */
+function startTimer() {
+  if (state.running) return;  // 防止重复启动
+  if (state.remaining <= 0) {
+    applyModeDuration();      // 倒计时已结束，重新加载时长
+  }
+  state.running = true;
+  playClick();                // 播放点击音效
+  updateUI();
+
+  // 启动每秒一次的定时器
+  intervalId = setInterval(() => {
+    state.remaining--;
+    if (state.remaining <= 0) {
+      state.remaining = 0;
+      completeSession();      // 时间到
+    }
+    updateUI();               // 每秒刷新 UI 和托盘
+  }, 1000);
+}
+
+/**
+ * 暂停计时
+ */
+function pauseTimer() {
+  state.running = false;
+  clearInterval(intervalId);
+  intervalId = null;
+  updateUI();
+}
+
+/**
+ * 重置计时器：停止计时，将剩余时间恢复为当前模式的总时长
+ */
+function resetTimer() {
+  state.running = false;
+  clearInterval(intervalId);
+  intervalId = null;
+  applyModeDuration();  // 重新设置时长为满值
+  updateUI();
+}
+
+/**
+ * 当前阶段完成时的处理逻辑
+ * 这是番茄工作法的核心状态机：
+ * - 工作完成 → 番茄数+1，判断该短休息还是长休息
+ * - 休息完成 → 切回工作模式
+ */
+function completeSession() {
+  // 停止计时
+  state.running = false;
+  clearInterval(intervalId);
+  intervalId = null;
+  playAlarm();  // 播放闹钟提示音
+
+  if (state.mode === 'work') {
+    // ── 工作阶段完成 ──
+    state.sessionCount++;        // 本轮番茄数 +1
+    state.totalPomodoros++;      // 历史总番茄数 +1
+    saveTotal(state.totalPomodoros);  // 持久化总番茄数
+    // 发送通知
+    notify('🍅 番茄完成！', `已完成 ${state.sessionCount} 个番茄，休息一下！`);
+
+    // 判断是否触发长休息：当前番茄数是否能被长休息间隔整除
+    // 例如 longInterval=4 时，第 4、8、12 个番茄后触发长休息
+    if (state.sessionCount % settings.longInterval === 0) {
+      switchMode('long');
+      notify('🍅', '该来一次长休息了～');
+    } else {
+      switchMode('short');  // 否则短休息
+    }
+  } else {
+    // ── 休息阶段完成 ──
+    notify('⏰ 休息结束', '准备好开始新的番茄了吗？');
+    switchMode('work');  // 切回工作模式，准备下一个番茄
+  }
+  updateUI();
+}
+
+/**
+ * 跳过当前阶段
+ * 不增加番茄计数（跳过工作时不计为完成），直接切换到下一模式
+ */
+function skipSession() {
+  playClick();
+  if (state.mode === 'work') {
+    // 跳过工作时：预判下一阶段是该短休息还是长休息
+    // 注意：用 sessionCount+1 来预测，但不真正 +1
+    if ((state.sessionCount + 1) % settings.longInterval === 0) {
+      switchMode('long');
+    } else {
+      switchMode('short');
+    }
+  } else {
+    // 跳过休息时：回到工作模式
+    switchMode('work');
+  }
+}
+
+// ====================================================================
+// 通知系统：优先使用 Electron 原生通知，降级到 Web Notification API
+// ====================================================================
+function notify(title, body) {
+  if (isElectron) {
+    // Electron 环境：调用主进程的原生通知 API
+    window.pomodoroAPI.notify(title, body);
+  } else if (Notification.permission === 'granted') {
+    // 浏览器环境：使用 Web Notification API（需用户已授权）
+    new Notification(title, { body, icon: '🍅', silent: true });
+  }
+  // 如果 Notification.permission 是 'default'，不做处理（避免打扰用户）
+}
+
+// ====================================================================
+// 事件监听器
+// ====================================================================
+
+// ── 开始/暂停按钮 ──
+$btnStart.addEventListener('click', () => {
+  if (state.running) pauseTimer();
+  else startTimer();
+});
+
+// ── 重置按钮 ──
+$btnReset.addEventListener('click', resetTimer);
+
+// ── 跳过按钮 ──
+$btnSkip.addEventListener('click', skipSession);
+
+// ── 模式切换标签 ──
+$modeBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    // 如果正在计时，先弹出确认对话框防止误操作
+    if (state.running) {
+      if (!confirm('切换模式会中断当前计时，确定吗？')) return;
+    }
+    // 通过 data-mode 属性获取目标模式并切换
+    switchMode(btn.dataset.mode);
+  });
+});
+
+// ── 窗口置顶按钮（Electron 环境） ──
+if (isElectron) {
+  // 初始化时从主进程获取当前置顶状态并同步 UI
+  window.pomodoroAPI.getAlwaysOnTop().then(val => {
+    if (val) $btnPin.classList.add('on');
+  });
+}
+$btnPin.addEventListener('click', () => {
+  // 切换 .on 类来控制按钮高亮样式
+  const on = $btnPin.classList.toggle('on');
+  // 通知 Electron 主进程设置窗口置顶
+  if (isElectron) window.pomodoroAPI.setAlwaysOnTop(on);
+});
+
+// ── 设置面板展开/收起 ──
+$btnSettings.addEventListener('click', () => {
+  $settingsPanel.classList.toggle('open');
+  // 根据状态切换按钮文字
+  $btnSettings.textContent = $settingsPanel.classList.contains('open') ? '⚙ 收起设置' : '⚙ 设置';
+  // 展开时将当前设置回填到输入框
+  if ($settingsPanel.classList.contains('open')) updateSettingsUI();
+});
+
+// ── 设置项变更 ──
+// 监听四个设置输入框的 change 事件（失焦或回车时触发）
+[$setWork, $setShort, $setLong, $setInterval].forEach(el => {
+  el.addEventListener('change', () => {
+    // 读取所有输入框的值并更新 settings 对象
+    settings.work = parseInt($setWork.value) || 25;
+    settings.short = parseInt($setShort.value) || 5;
+    settings.long = parseInt($setLong.value) || 15;
+    settings.longInterval = parseInt($setInterval.value) || 4;
+    saveSettings(settings);  // 持久化到 localStorage
+
+    // 如果当前没有在计时，立即应用新的时长设置
+    if (!state.running) {
+      applyModeDuration();
+      updateUI();
+    }
+    // 如果正在计时，等当前阶段结束后自然会使用新设置
+  });
+});
+
+// ── 窗口内键盘快捷键 ──
+// 注意：Alt 组合键通过 Electron 主进程注册为全局快捷键
+//       这里的 Space/R/S 是窗口内的普通快捷键
+document.addEventListener('keydown', e => {
+  // 如果焦点在输入框中，不触发快捷键（避免干扰文字输入）
+  if (e.target.tagName === 'INPUT') return;
+
+  if (e.code === 'Space') {
+    e.preventDefault();  // 阻止空格键滚动页面
+    if (state.running) pauseTimer(); else startTimer();
+  } else if (e.code === 'KeyR' && !e.altKey) {
+    resetTimer();
+  } else if (e.code === 'KeyS' && !e.altKey) {
+    skipSession();
+  }
+});
+
+// ── Electron 全局快捷键（来自主进程的 IPC 消息） ──
+if (isElectron) {
+  window.pomodoroAPI.onShortcut((action) => {
+    if (action === 'toggle') {
+      // 全局开始/暂停
+      if (state.running) pauseTimer(); else startTimer();
+    } else if (action === 'reset') {
+      resetTimer();
+    } else if (action === 'skip') {
+      skipSession();
+    }
+  });
+}
+
+// ====================================================================
+// 初始化：应用启动时设置默认状态
+// ====================================================================
+applyModeDuration();   // 按默认设置加载工作时长（25 分钟）
+updateUI();            // 刷新界面
+updateSettingsUI();    // 回填设置面板
+sendTrayUpdate();      // 同步托盘（Electron 环境）
+
+// ── 首次点击时请求通知权限（浏览器环境） ──
+// 在 document 上注册一次性点击事件，利用用户交互时机请求权限
+if (!isElectron && Notification.permission === 'default') {
+  document.addEventListener('click', function requestNotification() {
+    Notification.requestPermission();
+    document.removeEventListener('click', requestNotification);
+  }, { once: true });
+}
+</script>
+</body>
+</html>
